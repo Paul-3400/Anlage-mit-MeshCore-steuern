@@ -1,8 +1,8 @@
 # 📡 Protokoll-Spezifikation – Anlagensteuerung via MeshCore-Payload
 
-**Version:** 0.1 (Entwurf)
-**Status:** in Arbeit – basiert auf der Projektstudie vom 20.08.2026
-**Kanal:** MeshCore Direct Message (DM), Original-MeshCore
+- **Version:** 0.2 (Entwurf)
+- **Status:** in Arbeit – v0.2 passt das Protokoll auf die 2-Kanal-Architektur an (siehe Änderungshistorie, Abs. 16)
+- **Kanal:** MeshCore Direct Message (DM), Original-MeshCore
 
 ---
 
@@ -10,14 +10,16 @@
 
 Diese Spezifikation definiert das **Anwendungsprotokoll** für die Fernwirkung zwischen Leitstation und Remote-Anlage:
 
-- Steuerung von 4 Reed-Relais (RELn)
-- Rückmeldung von 8 Messwerten (4× Spannung, 4× Strom via INA226) und 4 Relaiszuständen
+- Steuerung von **2 Relaiskanälen** (RELn, JQC-3F-Module, NO-Verdrahtung)
+- Rückmeldung von **4 Last-Messwerten** (2× Spannung, 2× Strom via INA226) und 2 Relaiszuständen
 - Robustheit gegen Paketverlust, Duplikate und Kommunikationsverlust
+
+Die beiden Versorgungs-INA226 (5-V-/3.3-V-Rail) sind **nicht** Teil des ACK – sie werden lokal überwacht und geloggt (Erweiterung `US=`/`UR=` als v0.3-Kandidat, siehe Abs. 15).
 
 **Nicht Teil dieser Spezifikation** (separat zu klären):
 
 - Serielle Schnittstelle RAK4631 ↔ Raspberry Pi (AT-Befehle vs. Companion Protocol)
-- Elektrischer Aufbau (siehe Roadmap: Schaltplan)
+- Elektrischer Aufbau (siehe BLOCKSCHALTBILD.md)
 
 ---
 
@@ -32,7 +34,7 @@ Diese Spezifikation definiert das **Anwendungsprotokoll** für die Fernwirkung z
 | Nutzlast pro DM | **Soll: ≤ 120 Zeichen**, Grenze: ~133 Zeichen (nach Crypto-Overhead) |
 | Zeichensatz | ASCII (druckbar), keine Umlaute |
 
-> **Hinweis:** LoRa fügt auf PHY-Ebene eine CRC hinzu; korrupte Frames werden dort verworfen. Eine zusätzliche Prüfsumme im Payload ist daher in v0.1 **nicht** vorgesehen.
+> **Hinweis:** LoRa fügt auf PHY-Ebene eine CRC hinzu; korrupte Frames werden dort verworfen. Eine zusätzliche Prüfsumme im Payload ist daher in v0.2 **nicht** vorgesehen.
 
 ---
 
@@ -56,9 +58,9 @@ Diese Spezifikation definiert das **Anwendungsprotokoll** für die Fernwirkung z
 |---|---|---|---|
 | `CMD` | Leit → Anlage | Schaltbefehl(e) | `SEQ:07;CMD:REL1=ON,REL2=OFF` |
 | `POLL` | Leit → Anlage | Status anfordern (ohne Schaltaktion) | `SEQ:08;POLL` |
-| `ACK` | Anlage → Leit | Bestätigung + Vollstatus | `SEQ:07;ACK;U1=12.3;…` |
+| `ACK` | Anlage → Leit | Bestätigung + Vollstatus | `SEQ:07;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;R1=ON;R2=OFF` |
 | `NAK` | Anlage → Leit | Fehlermeldung (mit Codetabelle) | `SEQ:09;NAK:E02` |
-| `HB` | Anlage → Leit | Heartbeat (optional, default AUS) | `HB;U1=12.3;…` |
+| `HB` | Anlage → Leit | Heartbeat (optional, default AUS) | `HB;U1=12.3;I1=0.56;R1=ON;R2=OFF` |
 
 ---
 
@@ -68,13 +70,13 @@ Diese Spezifikation definiert das **Anwendungsprotokoll** für die Fernwirkung z
 
 | Befehl | Wirkung |
 |---|---|
-| `RELn=ON` | Relais n (1–4) einschalten |
+| `RELn=ON` | Relais n (**1–2**) einschalten |
 | `RELn=OFF` | Relais n ausschalten |
 | `RELn=TGL` | Relais n toggeln |
 
-- **Mehrfachbefehle** in einem CMD erlaubt, Komma-getrennt: `SEQ:07;CMD:REL1=ON,REL2=OFF,REL4=TGL`
+- **Mehrfachbefehle** in einem CMD erlaubt, Komma-getrennt: `SEQ:07;CMD:REL1=ON,REL2=TGL`
 - Ausführungsreihenfolge: **links nach rechts**.
-- Pro CMD max. 4 Relaisbefehle (je Kanal einer).
+- Pro CMD max. 2 Relaisbefehle (je Kanal einer).
 
 ### 5.2 Zeitverhalten
 
@@ -88,18 +90,19 @@ Diese Spezifikation definiert das **Anwendungsprotokoll** für die Fernwirkung z
 Vollständiger Status in fester Reihenfolge:
 
 ```
-SEQ:nn;ACK;U1=…;I1=…;U2=…;I2=…;U3=…;I3=…;U4=…;I4=…;R1=…;R2=…;R3=…;R4=…[;WD=…]
+SEQ:nn;ACK;U1=…;I1=…;U2=…;I2=…;R1=…;R2=…[;WD=…]
 ```
 
 | Feld | Bedeutung |
 |---|---|
-| `Un` / `In` | Messwerte Kanal n (Format siehe Abs. 3) |
+| `Un` / `In` | Messwerte Lastkanal n (Format siehe Abs. 3) |
 | `Rn` | Zustand Relais n (`ON`/`OFF`) |
 | `WD` | Watchdog-Flag, **nur wenn nicht OK** (siehe Abs. 9): `WD=TRIP` |
 
 - Ist ein INA226 nicht lesbar → Wert `x` (Bsp. `U2=x`).
-- Referenztelegramm (99 Zeichen; mit `WD=TRIP` 107 Zeichen) → beide komfortabel unter dem 120-Zeichen-Limit:
-  `SEQ:07;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;U3=5.0;I3=0.09;U4=3.3;I4=0.04;R1=ON;R2=OFF;R3=OFF;R4=OFF`
+- Referenztelegramm (**55 Zeichen**; mit `WD=TRIP` 63 Zeichen) → komfortabel unter dem 120-Zeichen-Limit:
+  `SEQ:07;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;R1=ON;R2=OFF`
+- Versorgungswerte (5 V/3.3 V) werden lokal geloggt, nicht im ACK übertragen (v0.3-Kandidat `US=`/`UR=`).
 
 ---
 
@@ -143,7 +146,7 @@ sequenceDiagram
 
 - Die Anlage speichert die **zuletzt ausgeführte SEQ**.
 - Empfängt sie ein CMD mit **gleicher SEQ** wie die zuletzt ausgeführte → Befehl **nicht erneut ausführen**, aber **ACK erneut senden** (das erste ACK kann verloren gegangen sein).
-- Empfängt sie eine **andere SEQ** (z. B. nach Neustart der Leitstellung) → als neue Sequenz behandeln und ausführen (kein vollständiger History-Puffer in v0.1; Offenpunkt: SEQ-Fenster).
+- Empfängt sie eine **andere SEQ** (z. B. nach Neustart der Leitstation) → als neue Sequenz behandeln und ausführen (kein vollständiger History-Puffer in v0.2; Offenpunkt: SEQ-Fenster).
 
 ---
 
@@ -162,7 +165,7 @@ sequenceDiagram
 ## 10. Heartbeat (optional)
 
 - **Default: AUS.** Primäres Modell ist das **POLL der Leitstation** (Anlage bleibt passiv, Sendezeit bleibt planbar bei der Leitstation).
-- Falls aktiviert (z. B. Solarbetrieb): HB alle `T_HB` = 180 s mit Kurzstatus (`Un`/`In` Kanal 1 + Relaiszustände, ~45 Zeichen ≈ ~263 ms Airtime).
+- Falls aktiviert (z. B. Solarbetrieb): HB alle `T_HB` = 180 s mit Kurzstatus (`U1`/`I1` + beide Relaiszustände, ~35 Zeichen ≈ ~240 ms Airtime).
 - HB und POLL dürfen **nicht beide** aktiv sein (doppelte Duty-Cycle-Last ohne Mehrwert).
 
 ---
@@ -173,7 +176,7 @@ sequenceDiagram
 |---|---|---|
 | `E01` | Unbekannter Befehl | `SEQ:07;NAK:E01` |
 | `E02` | Syntaxfehler (Malformed) | `SEQ:07;NAK:E02` |
-| `E03` | Parameter ausserhalb des Bereichs (z. B. REL5) | `SEQ:07;NAK:E03` |
+| `E03` | Parameter ausserhalb des Bereichs (z. B. REL3) | `SEQ:07;NAK:E03` |
 | `E04` | Befehl zu lang / zu viele Parameter | `SEQ:07;NAK:E04` |
 | `E05` | Interner Fehler (z. B. I2C-Fehler) | `SEQ:07;NAK:E05` |
 
@@ -184,26 +187,26 @@ sequenceDiagram
 
 ## 12. Längen- und Airtime-Budget
 
-Airtime-Näherung aus der Projektstudie (SF8/BW62.5/CR4/8; ~263 ms bei 40, ~509 ms bei 100 Zeichen, gerundet interpoliert):
+Airtime-Näherung aus der Projektstudie (SF8/BW62.5/CR4/8; Stützstellen ~40 Zeichen ≈ 263 ms, ~100 Zeichen ≈ 509 ms, linear interpoliert):
 
 | Telegramm | Länge | Airtime (ca.) |
 |---|---|---|
-| CMD mit 1 Relaisbefehl | 27 Zeichen | ~180 ms |
-| CMD mit 4 Relaisbefehlen (Worst Case) | ~46 Zeichen | ~290 ms |
-| POLL | 11 Zeichen | ~100 ms |
-| Vollständiges ACK (mit WD) | ~107 Zeichen | ~520 ms |
-| NAK | 14 Zeichen | ~100 ms |
-| **Worst-Case-Zyklus** (CMD 46 + ACK 107) | | **~810 ms** |
+| CMD mit 1 Relaisbefehl | 18 Zeichen | ~170 ms |
+| CMD mit 2 Relaisbefehlen (Worst Case) | 27 Zeichen | ~210 ms |
+| POLL | 11 Zeichen | ~140 ms |
+| Vollständiges ACK (mit WD) | ~63 Zeichen | ~360 ms |
+| NAK | 14 Zeichen | ~155 ms |
+| **Worst-Case-Zyklus** (CMD 27 + ACK 63) | | **~570 ms** |
 
 ### Duty-Cycle-Auslastung (Grenze: 360 s/h = 10 %)
 
 | Szenario | Zyklen/h | Sendezeit/h | Auslastung |
 |---|---|---|---|
-| POLL alle 3 min | 20 | ~16.2 s | ~4.5 % |
-| POLL alle 2 min | 30 | ~24.3 s | ~6.8 % |
-| + 3× Retry eines Befehls | +3 Zyklen | +~2.4 s | +0.7 % |
+| POLL alle 3 min | 20 | ~11.4 s | ~3.2 % |
+| POLL alle 2 min | 30 | ~17.0 s | ~4.7 % |
+| + 3× Retry eines Befehls | +3 Zyklen | +~1.7 s | +0.5 % |
 
-**Fazit:** Mit 2–3-Minuten-Polling bleibt genug Reserve für Retries, Konfigurationsverkehr und Sonderfälle.
+**Fazit:** Mit 2 Kanälen ist das Protokoll noch schlanker als in v0.1 – genug Reserve für Retries, Konfigurationsverkehr und Sonderfälle.
 
 ---
 
@@ -211,7 +214,7 @@ Airtime-Näherung aus der Projektstudie (SF8/BW62.5/CR4/8; ~263 ms bei 40, ~509 
 
 - Vertraulichkeit & Authentizität werden **durch MeshCore selbst** bereitgestellt: DM sind Ende-zu-Ende-verschlüsselt (ECDH/X25519-Sitzungsschlüssel aus den Ed25519-Identitäten, AES-128, HMAC-Authentisierung, Timestamp gegen Replay).
 - Voraussetzung: **Kontakt-Austausch der Public-Key-Identitäten** beider Stationen über vertrauenswürdigen Weg (QR-Code/angeschlossenes Gerät). Die Anlage akzeptiert DM **nur vom bekannten Peer**.
-- Zusätzliche Payload-Verschlüsselung in v0.1 **nicht** vorgesehen (Offenpunkt der Studie, hiermit für v0.1 beantwortet).
+- Zusätzliche Payload-Verschlüsselung in v0.2 **nicht** vorgesehen.
 - Physische Sicherheit (Zugang zur Anlage, Relais-Netzteil) ist ausserhalb des Protokolls.
 
 ---
@@ -221,44 +224,55 @@ Airtime-Näherung aus der Projektstudie (SF8/BW62.5/CR4/8; ~263 ms bei 40, ~509 
 ```text
 # Relais 1 ein, Relais 2 aus
 SEQ:07;CMD:REL1=ON,REL2=OFF
-SEQ:07;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;U3=5.0;I3=0.09;U4=3.3;I4=0.04;R1=ON;R2=OFF;R3=OFF;R4=OFF
+SEQ:07;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;R1=ON;R2=OFF
 
 # Nur Status abfragen
 SEQ:08;POLL
-SEQ:08;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;U3=5.0;I3=0.09;U4=3.3;I4=0.04;R1=ON;R2=OFF;R3=OFF;R4=OFF
+SEQ:08;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;R1=ON;R2=OFF
 
 # Togglen mit Bestätigung
-SEQ:09;CMD:REL3=TGL
-SEQ:09;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;U3=5.0;I3=0.09;U4=3.3;I4=0.04;R1=ON;R2=OFF;R3=ON;R4=OFF
+SEQ:09;CMD:REL2=TGL
+SEQ:09;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;R1=ON;R2=ON
 
 # Fehlerfall: unzulässiger Kanal
-SEQ:10;CMD:REL5=ON
+SEQ:10;CMD:REL3=ON
 SEQ:10;NAK:E03
 
 # Retry nach ACK-Verlust (Dedup: kein Doppel-Ausführen, ACK erneut)
-SEQ:09;CMD:REL3=TGL        ← Duplikat, wird NICHT erneut ausgeführt
-SEQ:09;ACK;…;R3=ON;…       ← ACK wird trotzdem erneut gesendet
+SEQ:09;CMD:REL2=TGL        ← Duplikat, wird NICHT erneut ausgeführt
+SEQ:09;ACK;…;R2=ON         ← ACK wird trotzdem erneut gesendet
 
 # Watchdog ausgelöst (nach T_WD ohne gültiges Telegramm)
 SEQ:11;POLL
-SEQ:11;ACK;…;R1=ON;…;WD=TRIP
+SEQ:11;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;R1=ON;R2=OFF;WD=TRIP
 ```
 
 ---
 
-## 15. Offene Punkte (v0.1)
+## 15. Offene Punkte (v0.2)
 
 - [ ] SEQ-Dedup: genaues Fenster bzw. Umgang mit SEQ-Sprüngen nach Leitstations-Neustart
 - [ ] E05-Semantik bei Teilausführung verfeinern (Vorschlag: vor Ausführung I2C-Test, wenn möglich atomar bleiben)
 - [ ] `T_ACK` / `T_WD` / `T_HB` endgültig festlegen (Implementierungswerte oben sind Vorgaben)
 - [ ] Verhalten bei mehreren Peers (später: Adressfeld `TO=` nötig?)
 - [ ] Serielles Protokoll RAK4631 ↔ Pi Zero W (eigener Entwurf, nächster Projektschritt)
+- [ ] v0.3-Kandidat: Felder `US=` (5-V-USV) und `UR=` (3.3-V-Rail) für die Versorgungs-INA226
 
 ---
 
-## 16. Verweise
+## 16. Änderungshistorie
+
+| Version | Datum | Änderung |
+|---|---|---|
+| 0.1 | 28.10.2026 | Erster Entwurf (4 Kanäle gem. Projektstudie) |
+| 0.2 | 28.10.2026 | **Auf 2 Kanäle gekürzt** gemäss Architektur-Entscheid: ACK `U1/I1, U2/I2, R1/R2`; Versorgungs-INA226 aus dem ACK herausgenommen; Budget-Werte aktualisiert; Beispiele angepasst |
+
+---
+
+## 17. Verweise
 
 - Projektstudie «Anlagensteuerung via MeshCore-Payload» (KI-Notizbuch, 20.08.2026)
+- [BLOCKSCHALTBILD.md](BLOCKSCHALTBILD.md) – Hardware-Blockschaltbild (2 Kanäle)
 - [README.md](../README.md) – Projektübersicht
 - [MeshCore (Original)](https://meshcore.io), [meshcore-dev](https://github.com/meshcore-dev)
 
