@@ -64,10 +64,10 @@ Quellen: Hersteller-Spezifikationen JQC-3F/T73 (Shenler/Hungso/DBLECTRO), siehe 
 
 ### 3.3 Strombudget der Spulen (Pflicht)
 
-4 Relais gleichzeitig EIN: 4 × ~132 mA = **~528 mA @ 3.3 V** (+ ~10 mA Basisströme über die GPIOs).
+Eingesetzt werden **2× 1-Kanal-Module** (Entscheid 28.10.2026): 2 Relais gleichzeitig EIN = 2 × ~132 mA = **~264 mA @ 3.3 V** (+ ~5 mA Basisströme über die GPIOs).
 
 - Die 3.3-V-Rail des Pi Zero W ist dafür **zu knapp** (dort hängt auch der RAM/WLAN-Bereich).
-- **Empfehlung:** eigener Step-Down-Regler 5 V → 3.3 V (≥ 1 A) nur für die Relais-Module; GND gemeinsam mit dem Pi. Damit bleibt das GPIO-Interface (nur ~2–3 mA pro Pin) unkritisch.
+- **Empfehlung:** eigener Step-Down-Regler 5 V → 3.3 V (≥ 1 A) nur für die Relais-Module; GND gemeinsam mit dem Pi. Damit bleibt das GPIO-Interface (nur ~2–3 mA pro Pin) unkritisch. → umgesetzt im [BLOCKSCHALTBILD.md](BLOCKSCHALTBILD.md)
 
 ### 3.4 Basisstrom
 
@@ -78,22 +78,22 @@ Der GPIO muss im EIN-Zustand nur den S8550-Basisstrom (über den Vorwiderstand d
 ## 4. Definierter Zustand beim Boot (Start-Sicherheit)
 
 - Der Pi konfiguriert GPIOs erst spät beim Boot; davor sind sie Eingänge (teils mit internem Pull).
-- **Massnahme:** externer Pull-up **10 kΩ von IN nach 3.3 V** je Kanal → Relais bleibt beim Boot sicher AUS (Low-aktiv!).
+- **Massnahme:** externer Pull-up **10 kΩ von IN nach 3.3 V** je Kanal → Relais bleibt beim Boot sicher AUS (Low-aktiv!). Der Pull-up gehört an die **Modul-3.3-V-Schiene** (nach dem DC-DC), nicht an die Pi-Rail.
 - Zusätzlich im Python-Code: GPIOs **so früh wie möglich** als Output mit Initialwert HIGH setzen.
 
 ---
 
 ## 5. Auswirkung auf das Power-Budget (Änderung zur Projektstudie!)
 
-Die Projektstudie rechnete mit Reed-Relais (~10 mA). Mit diesen EM-Modulen gilt:
+Die Projektstudie rechnete mit Reed-Relais (~10 mA). Mit diesen EM-Modulen gilt (Einsatz: 2 Kanäle):
 
 | Szenario | Relais-Strom | Gesamtleistung (ca.) | Energie/Tag |
 |---|---|---|---|
-| Alle 4 AUS | ~0 mA | ~0.64 W (wie Studie) | ~15 Wh |
+| Beide AUS | ~0 mA | ~0.64 W (wie Studie) | ~15 Wh |
 | 1 Relais EIN | ~132 mA | ~1.1 W | ~26 Wh |
-| 4 Relais EIN | ~528 mA | **~2.4 W** | **~57 Wh (≈1.7 kWh/Monat)** |
+| 2 Relais EIN | ~264 mA | **~1.5 W** | **~36 Wh (≈1.1 kWh/Monat)** |
 
-- Bei Netzbetrieb (Netzteil ≥ 2 A) unproblematisch.
+- Bei Netzbetrieb (USV ≥ 2 A) unproblematisch.
 - Bei Solar/Akku-Betrieb wäre der Unterschied **wesentlich** → dort wären die ursprünglich geplanten Reed-Relais vorzuziehen (Offenpunkt).
 
 ---
@@ -109,7 +109,7 @@ Die Projektstudie rechnete mit Reed-Relais (~10 mA). Mit diesen EM-Modulen gilt:
 | Preis | bereits vorhanden | zu beschaffen |
 | Lebensdauer | ~10⁵ Spiele bei Nennlast | >10⁷ (Reed, nahezu verschleissfrei) |
 
-**Konsequenz für den Schaltplan:** ULN2003A entfällt als Pflichtbaustein (nur als Reserve/Fallback für zukünftige 5-V-Module im Design behalten). Der **NC-Kontakt** erlaubt fail-safe Verdrahtung: Last wahlweise an NO (Relais EIN = an) oder NC (Relais EIN = aus / stromlos = an) – je nach gewünschtem Verhalten bei Watchdog/SAFE.
+**Konsequenz für den Schaltplan:** ULN2003A entfällt als Pflichtbaustein (nur als Reserve/Fallback für zukünftige 5-V-Module im Design behalten). Der **NC-Kontakt** würde fail-safe Verdrahtung «stromlos = EIN» erlauben – **gewählt wurde jedoch NO** (Stromausfall = Stromkreis offen, siehe BLOCKSCHALTBILD.md, Abs. 4).
 
 ---
 
@@ -128,7 +128,6 @@ Die Projektstudie rechnete mit Reed-Relais (~10 mA). Mit diesen EM-Modulen gilt:
 - [ ] Freilaufdiode auf dem Modul vorhanden? (bei fehlender Diode würde der S8550 durch Induktionsspitzen leiden – meist bestückt, prüfen)
 - [ ] Pull-up auf IN vorhanden? (wenn nein: externen 10 kΩ nach 3.3 V einplanen – sowieso empfohlen)
 - [ ] Verhalten bei schwebendem IN testen (muss AUS bleiben)
-- [ ] 2-Kanal-Modul: Funktion des Jumpers «VCC-JD» klären (bei 3.3-V-Betrieb i. d. R. geschlossen lassen)
 - [ ] Stromaufnahme pro Kanal bei 3.3 V messen (Soll ~130 mA)
 
 ---
@@ -142,9 +141,9 @@ Die Projektstudie rechnete mit Reed-Relais (~10 mA). Mit diesen EM-Modulen gilt:
 
 ## 10. Offene Punkte
 
-- [ ] Wie viele 1-/2-Kanal-Module liegen tatsächlich in der Bastelkiste? (für die Schaltplan-Topologie)
+- [x] Wie viele Module? → **2× 1-Kanal-Module** (Entscheid 28.10.2026, siehe [BLOCKSCHALTBILD.md](BLOCKSCHALTBILD.md))
+- [x] Verdrahtung: **NO** – Stromausfall = Stromkreis offen (Vorgabe 28.10.2026, siehe BLOCKSCHALTBILD.md, Abs. 4)
 - [ ] Gemeinsamer externer 3.3-V-Regler: Typ wählen (z. B. Step-Down-Modul MP1584/mini360)
-- [ ] Verdrahtung Last an NO oder NC je Kanal festlegen (fail-safe-Strategie, Abs. 6)
 - [ ] Power-Budget in README/Studie konsolidieren, sobald feststeht, wie viele Relais dauerhaft EIN sind
 
 ---
