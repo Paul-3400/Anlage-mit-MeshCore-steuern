@@ -53,9 +53,9 @@ graph LR
 
 ---
 
-## 📦 Payload-Design (Entwurf)
+## 📦 Payload-Design
 
-Klartext mit SEQ/CMD/ACK, max. ~120–133 Zeichen pro DM (nach Crypto-Overhead):
+Klartext mit SEQ/CMD/ACK, max. ~120–133 Zeichen pro DM (nach Crypto-Overhead). Das vollständige Regelwerk – Telegrammtypen, Befehlsreferenz, Timeout/Retry, Dedup, Watchdog, NAK-Codes, Airtime-Budget – ist in der **[Protokoll-Spezifikation](docs/PROTOKOLL.md)** festgelegt.
 
 ```
 # Befehl (Leitstation → Anlage)
@@ -64,11 +64,11 @@ SEQ:nn;CMD:REL1=ON,REL2=OFF
 # Antwort (Anlage → Leitstation)
 SEQ:nn;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;U3=5.0;I3=0.09;U4=3.3;I4=0.04;R1=ON;R2=OFF;R3=OFF;R4=OFF
 
-# Heartbeat
+# Heartbeat (optional, default aus)
 HB;U1=12.3;I1=0.56;R1=ON;R2=OFF;R3=OFF;R4=OFF
 ```
 
-**Robustheitskonzept:** SEQ + ACK + Timeout + Watchdog (sicheres Verhalten bei Kommunikationsverlust).
+**Robustheitskonzept:** SEQ + ACK + Timeout + Retry + Deduplizierung + Watchdog (sicheres Verhalten bei Kommunikationsverlust).
 
 **Dimensionierung:** 4 Relais + 4 INA226 (8 Messwerte) passen in einen Payload (~60–70 % Auslastung); Polling alle 2–3 Minuten ist komfortabel möglich.
 
@@ -91,7 +91,7 @@ HB;U1=12.3;I1=0.56;R1=ON;R2=OFF;R3=OFF;R4=OFF
 
 ## 🗺️ Roadmap
 
-- [ ] **Protokoll-Spezifikation** im Detail ausarbeiten
+- [x] **Protokoll-Spezifikation** – [docs/PROTOKOLL.md](docs/PROTOKOLL.md) (v0.1, 28.10.2026)
 - [ ] **Schaltplan** Pi Zero W + I2C + ULN2003A + Relais
 - [ ] **Python-Code** Serial-Parser auf Pi Zero W
 - [ ] **MeshCore-Konfiguration** RAK4631 für DM-Betrieb
@@ -105,8 +105,8 @@ HB;U1=12.3;I1=0.56;R1=ON;R2=OFF;R3=OFF;R4=OFF
 - Companion-App oder eigenes Python-Script auf der Leitstation?
 - Serielles Protokoll RAK4631 ↔ Pi: AT-Befehle oder MeshCore Companion Protocol?
 - Antennenaufstellung – Sichtverbindung möglich?
-- Braucht es Verschlüsselung über den MeshCore-Standard hinaus?
-- Watchdog-Verhalten: Was tut die Anlage bei Kommunikationsverlust?
+- ~~Braucht es Verschlüsselung über den MeshCore-Standard hinaus?~~ → Für v0.1 beantwortet: MeshCore-DM ist Ende-zu-Ende-verschlüsselt, keine zusätzliche Schicht nötig (siehe Protokoll-Spezifikation, Abs. 13).
+- Watchdog-Verhalten: Was tut die Anlage bei Kommunikationsverlust? → Vorgabe in der Protokoll-Spezifikation (Abs. 9): HOLD (Default) oder konfigurierbar SAFE.
 - Stromversorgung: Netz vorhanden oder Solar/Akku nötig?
 
 ---
