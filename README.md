@@ -13,8 +13,10 @@
 | Funkstrecke | 2× RAK4631 | MeshCore Direct Message |
 | Steuereinheit | Raspberry Pi Zero W | Parser, I2C-Master, GPIO |
 | Sensoren | 4× INA226 (I2C) | Spannung + Strom messen |
-| Aktoren | 4× Reed-Relais (Standex SIL 05-1A72-71D) | Schalten |
-| Treiber | ULN2003A | GPIO → Relais, integrierte Freilaufdioden |
+| Aktoren | 4× Relais (JQC-3F-03VDC-C-Module) | Schalten (Wechsler NO/COM/NC) |
+| Treiber | S8550 onboard der Module (ULN2003A nur Reserve) | GPIO → Relais, Low-aktiv |
+
+> ℹ️ **Relais-Update (28.10.2026):** Statt der Reed-Relais aus der Studie kommen vorhandene Relais-Module (JQC-3F-03VDC-C, 3-V-Spule) zum Einsatz. Sie können vom Pi **direkt** angesteuert werden (VCC = 3.3 V, IN = LOW → EIN) – Details, Einschränkungen und Prüf-Checkliste in **[docs/RELAIS-MODUL.md](docs/RELAIS-MODUL.md)**. Achtung: höherer Spulenstrom → Power-Budget steigt auf max. ~2.4 W (siehe dort, Abs. 5).
 
 ---
 
@@ -31,7 +33,7 @@ graph LR
     subgraph Anlage Remote
         C -->|USB-Seriell| D[Raspberry Pi Zero W]
         D -->|I2C| E[4× INA226]
-        D -->|GPIO → ULN2003A| F[4× Reed-Relais]
+        D -->|GPIO 3.3 V, Low-aktiv| F[4× Relais-Module JQC-3F]
     end
     C -.->|Rückmeldung| B
 ```
@@ -81,18 +83,18 @@ HB;U1=12.3;I1=0.56;R1=ON;R2=OFF;R3=OFF;R4=OFF
 | Pi Zero W (headless, WiFi aus) | 100–110 mA @ 5 V | 500–550 mW |
 | RAK4631 (Idle) | ~6 mA @ 3.3 V | ~20 mW |
 | 4× INA226 | 1.4 mA @ 3.3 V | 4.6 mW |
-| 1 Reed-Relais (Durchschnitt) | 10 mA @ 5 V | 50 mW |
-| ULN2003A Treiber | <1 mA | vernachlässigbar |
-| **TOTAL** | **~127 mA @ 5 V** | **~637 mW** |
+| 1 Relais EIN (JQC-3F @ 3.3 V) | ~132 mA @ 3.3 V | ~436 mW |
+| **TOTAL (1 Relais EIN)** | | **~1.1 W** |
 
-**→ 15.3 Wh/Tag = 0.46 kWh/Monat**
+> ⚠️ Mit den Relais-Modulen gilt gegenüber der Studie ein neues Budget: alle 4 Relais gleichzeitig EIN → **~2.4 W (≈57 Wh/Tag ≈ 1.7 kWh/Monat)** statt ~0.64 W mit Reed-Relais. Details: [docs/RELAIS-MODUL.md](docs/RELAIS-MODUL.md), Abs. 5. Bei Netzbetrieb unkritisch; bei Solarbetrieb wäre die Reed-Relais-Variante vorzuziehen.
 
 ---
 
 ## 🗺️ Roadmap
 
 - [x] **Protokoll-Spezifikation** – [docs/PROTOKOLL.md](docs/PROTOKOLL.md) (v0.1, 28.10.2026)
-- [ ] **Schaltplan** Pi Zero W + I2C + ULN2003A + Relais
+- [x] **Relais-Beschreibung** (JQC-3F-03VDC-C) – [docs/RELAIS-MODUL.md](docs/RELAIS-MODUL.md) (28.10.2026)
+- [ ] **Schaltplan** Pi Zero W + I2C + Relais-Module (3.3 V, Low-aktiv, externer Regler)
 - [ ] **Python-Code** Serial-Parser auf Pi Zero W
 - [ ] **MeshCore-Konfiguration** RAK4631 für DM-Betrieb
 - [ ] **Loopback-Test** mit beiden Radios nebeneinander
@@ -106,8 +108,8 @@ HB;U1=12.3;I1=0.56;R1=ON;R2=OFF;R3=OFF;R4=OFF
 - Serielles Protokoll RAK4631 ↔ Pi: AT-Befehle oder MeshCore Companion Protocol?
 - Antennenaufstellung – Sichtverbindung möglich?
 - ~~Braucht es Verschlüsselung über den MeshCore-Standard hinaus?~~ → Für v0.1 beantwortet: MeshCore-DM ist Ende-zu-Ende-verschlüsselt, keine zusätzliche Schicht nötig (siehe Protokoll-Spezifikation, Abs. 13).
-- Watchdog-Verhalten: Was tut die Anlage bei Kommunikationsverlust? → Vorgabe in der Protokoll-Spezifikation (Abs. 9): HOLD (Default) oder konfigurierbar SAFE.
-- Stromversorgung: Netz vorhanden oder Solar/Akku nötig?
+- Watchdog-Verhalten → Vorgabe in der Protokoll-Spezifikation (Abs. 9): HOLD (Default) oder konfigurierbar SAFE.
+- Stromversorgung: Netz vorhanden oder Solar/Akku nötig? → Mitentscheidend für die Relais-Wahl (Reed bei Solar, siehe RELAIS-MODUL.md Abs. 5/6).
 
 ---
 
