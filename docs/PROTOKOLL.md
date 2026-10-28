@@ -32,7 +32,7 @@ Diese Spezifikation definiert das **Anwendungsprotokoll** für die Fernwirkung z
 | Nutzlast pro DM | **Soll: ≤ 120 Zeichen**, Grenze: ~133 Zeichen (nach Crypto-Overhead) |
 | Zeichensatz | ASCII (druckbar), keine Umlaute |
 
-> **Hinweis:** LoRa fügt auf PHY-Ebene eine CRC hinzu; korrupte Frames werden dort verworfen. Eine zusätzliche Prüfsumme im Payload ist daher in v0.1 **nicht** vorgesehen (Offenpunkt: Feldvalidierung reicht fürs Erste).
+> **Hinweis:** LoRa fügt auf PHY-Ebene eine CRC hinzu; korrupte Frames werden dort verworfen. Eine zusätzliche Prüfsumme im Payload ist daher in v0.1 **nicht** vorgesehen.
 
 ---
 
@@ -98,8 +98,8 @@ SEQ:nn;ACK;U1=…;I1=…;U2=…;I2=…;U3=…;I3=…;U4=…;I4=…;R1=…;R2=…
 | `WD` | Watchdog-Flag, **nur wenn nicht OK** (siehe Abs. 9): `WD=TRIP` |
 
 - Ist ein INA226 nicht lesbar → Wert `x` (Bsp. `U2=x`).
-- Referenztelegramm (103 Zeichen, ohne WD):
-  `SEQ:07;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;U3=5.0;I3=0.09;U4=3.3;I4=0.04;R1=ON;R2=OFF;R3=OFF;R4=OFF` → **86 Zeichen** *? (Länge wird bei der Implementierung automatisiert geprüft; Soll ≤ 120)*
+- Referenztelegramm (99 Zeichen; mit `WD=TRIP` 107 Zeichen) → beide komfortabel unter dem 120-Zeichen-Limit:
+  `SEQ:07;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;U3=5.0;I3=0.09;U4=3.3;I4=0.04;R1=ON;R2=OFF;R3=OFF;R4=OFF`
 
 ---
 
@@ -142,8 +142,8 @@ sequenceDiagram
 ### 8.3 Deduplizierung (Anlage)
 
 - Die Anlage speichert die **zuletzt ausgeführte SEQ**.
-- Empfängt sie ein CMD mit ** gleicher SEQ wie die zuletzt ausgeführte** → Befehl **nicht erneut ausführen**, aber **ACK erneut senden** (das erste ACK kann verloren gegangen sein).
-- Empfängt sie eine **ältere/sprunghafte SEQ** → als neue Sequenz behandeln und ausführen (kein vollständiger History-Puffer in v0.1; Offenpunkt: SEQ-Fenster).
+- Empfängt sie ein CMD mit **gleicher SEQ** wie die zuletzt ausgeführte → Befehl **nicht erneut ausführen**, aber **ACK erneut senden** (das erste ACK kann verloren gegangen sein).
+- Empfängt sie eine **andere SEQ** (z. B. nach Neustart der Leitstellung) → als neue Sequenz behandeln und ausführen (kein vollständiger History-Puffer in v0.1; Offenpunkt: SEQ-Fenster).
 
 ---
 
@@ -156,15 +156,14 @@ sequenceDiagram
 | Reset | Erste gültige CMD/POLL nach Timeout setzt Watchdog zurück |
 
 - Der Watchdog-Status wird im nächsten ACK gemeldet: `WD=TRIP` (nur wenn ausgelöst; andernfalls Feld weglassen).
-- Leitet die Anlage die Heartbeat-Variante (Abs. 10) ein, gilt analog: `T_WD` ab letzter **gesendeter** HB.
 
 ---
 
 ## 10. Heartbeat (optional)
 
 - **Default: AUS.** Primäres Modell ist das **POLL der Leitstation** (Anlage bleibt passiv, Sendezeit bleibt planbar bei der Leitstation).
-- Falls aktiviert (z. B. Solarbetrieb ohne Leitstation im Akkuwinter): HB alle `T_HB` = 180 s mit Kurzstatus (`Un`/`In` Kanal 1 + Relaiszustände, ~45 Zeichen ≈ ~263 ms Airtime).
-- HB und POLL dürfen **nicht beide** aktiv sein (doppelte Duty-Cycle-Last, doppelte Redundanz ohne Mehrwert).
+- Falls aktiviert (z. B. Solarbetrieb): HB alle `T_HB` = 180 s mit Kurzstatus (`Un`/`In` Kanal 1 + Relaiszustände, ~45 Zeichen ≈ ~263 ms Airtime).
+- HB und POLL dürfen **nicht beide** aktiv sein (doppelte Duty-Cycle-Last ohne Mehrwert).
 
 ---
 
@@ -176,33 +175,33 @@ sequenceDiagram
 | `E02` | Syntaxfehler (Malformed) | `SEQ:07;NAK:E02` |
 | `E03` | Parameter ausserhalb des Bereichs (z. B. REL5) | `SEQ:07;NAK:E03` |
 | `E04` | Befehl zu lang / zu viele Parameter | `SEQ:07;NAK:E04` |
-| `E05` | Internehmer Fehler (I2C-Fehler beim Ausführen) | `SEQ:07;NAK:E05` |
+| `E05` | Interner Fehler (z. B. I2C-Fehler) | `SEQ:07;NAK:E05` |
 
-- Bei Fehlern wird **kein Befehl ausgeführt** (atomar: ganz oder gar nicht, ausser E05 nach Teilausführung – dann Teilzustand im ACK-Feld dokumentieren; Offenpunkt).
-- Mehrfachbefehle: wird ein Parameter nicht erkannt → gesamtes CMD verwerfen (E01/E02/E03), nichts schalten.
+- Mehrfachbefehle sind **atomar**: wird ein Parameter nicht erkannt (E01–E04) → gesamtes CMD verwerfen, nichts schalten.
+- E05 (I2C-Fehler **während** der Ausführung): bereits geschaltete Kanäle bleiben; Fehler im ACK dokumentieren (Offenpunkt: feinere Semantik).
 
 ---
 
 ## 12. Längen- und Airtime-Budget
 
-Airtime gemäss Projektstudie (SF8/BW62.5/CR4/8, Werte gerundet):
+Airtime-Näherung aus der Projektstudie (SF8/BW62.5/CR4/8; ~263 ms bei 40, ~509 ms bei 100 Zeichen, gerundet interpoliert):
 
 | Telegramm | Länge | Airtime (ca.) |
 |---|---|---|
-| CMD mit 1 Relaisbefehl | ~27 Zeichen | ~180 ms |
-| CMD mit 4 Relaisbefehlen | ~40 Zeichen | ~263 ms |
+| CMD mit 1 Relaisbefehl | 27 Zeichen | ~180 ms |
+| CMD mit 4 Relaisbefehlen (Worst Case) | ~46 Zeichen | ~290 ms |
 | POLL | 11 Zeichen | ~100 ms |
-| Vollständiges ACK | ~103 Zeichen | ~509 ms |
+| Vollständiges ACK (mit WD) | ~107 Zeichen | ~520 ms |
 | NAK | 14 Zeichen | ~100 ms |
-| **Worst-Case-Zyklus** (CMD 40 + ACK 103) | | **~772 ms** |
+| **Worst-Case-Zyklus** (CMD 46 + ACK 107) | | **~810 ms** |
 
 ### Duty-Cycle-Auslastung (Grenze: 360 s/h = 10 %)
 
 | Szenario | Zyklen/h | Sendezeit/h | Auslastung |
 |---|---|---|---|
-| POLL alle 3 min | 20 | ~15.4 s | ~4.3 % |
-| POLL alle 2 min | 30 | ~23.2 s | ~6.4 % |
-| + 3× Retry eines Befehls | +3 Zyklen | +~2.3 s | +0.6 % |
+| POLL alle 3 min | 20 | ~16.2 s | ~4.5 % |
+| POLL alle 2 min | 30 | ~24.3 s | ~6.8 % |
+| + 3× Retry eines Befehls | +3 Zyklen | +~2.4 s | +0.7 % |
 
 **Fazit:** Mit 2–3-Minuten-Polling bleibt genug Reserve für Retries, Konfigurationsverkehr und Sonderfälle.
 
@@ -211,8 +210,8 @@ Airtime gemäss Projektstudie (SF8/BW62.5/CR4/8, Werte gerundet):
 ## 13. Sicherheitsbetrachtung
 
 - Vertraulichkeit & Authentizität werden **durch MeshCore selbst** bereitgestellt: DM sind Ende-zu-Ende-verschlüsselt (ECDH/X25519-Sitzungsschlüssel aus den Ed25519-Identitäten, AES-128, HMAC-Authentisierung, Timestamp gegen Replay).
-- Voraussetzung: **Kontakt-Austausch der PublicKey-Identitäten** beider Stationen über vertrauenswürdigen Weg (QR-Code/angeschlossenes Gerät). Die Anlage akzeptiert DM **nur vom bekannten Peer**.
-- Zusätzliche Payload-Verschlüsselung in v0.1 **nicht** vorgesehen (Offenpunkt der Studie, hiermit beantwortet für v0.1).
+- Voraussetzung: **Kontakt-Austausch der Public-Key-Identitäten** beider Stationen über vertrauenswürdigen Weg (QR-Code/angeschlossenes Gerät). Die Anlage akzeptiert DM **nur vom bekannten Peer**.
+- Zusätzliche Payload-Verschlüsselung in v0.1 **nicht** vorgesehen (Offenpunkt der Studie, hiermit für v0.1 beantwortet).
 - Physische Sicherheit (Zugang zur Anlage, Relais-Netzteil) ist ausserhalb des Protokolls.
 
 ---
@@ -232,7 +231,7 @@ SEQ:08;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;U3=5.0;I3=0.09;U4=3.3;I4=0.04;R1=ON;R
 SEQ:09;CMD:REL3=TGL
 SEQ:09;ACK;U1=12.3;I1=0.56;U2=24.0;I2=1.23;U3=5.0;I3=0.09;U4=3.3;I4=0.04;R1=ON;R2=OFF;R3=ON;R4=OFF
 
-# Fehlerfall: unbannter Kanal
+# Fehlerfall: unzulässiger Kanal
 SEQ:10;CMD:REL5=ON
 SEQ:10;NAK:E03
 
@@ -250,10 +249,10 @@ SEQ:11;ACK;…;R1=ON;…;WD=TRIP
 ## 15. Offene Punkte (v0.1)
 
 - [ ] SEQ-Dedup: genaues Fenster bzw. Umgang mit SEQ-Sprüngen nach Leitstations-Neustart
-- [ ] E05-Teilausführung: документieren oder atomar machen (Vorschlag: atomar, bei I2C-Fehler vor Ausführung abbrechen)
-- [ ] T_ACK/T_WD/T_HB endgültig festlegen (Implementierungswerte oben sind Vorgaben)
+- [ ] E05-Semantik bei Teilausführung verfeinern (Vorschlag: vor Ausführung I2C-Test, wenn möglich atomar bleiben)
+- [ ] `T_ACK` / `T_WD` / `T_HB` endgültig festlegen (Implementierungswerte oben sind Vorgaben)
 - [ ] Verhalten bei mehreren Peers (später: Adressfeld `TO=` nötig?)
-- [ ] Serial-Protokoll RAK4631 ↔ Pi Zero W (eigener Entwurf, nächster Projektschritt)
+- [ ] Serielles Protokoll RAK4631 ↔ Pi Zero W (eigener Entwurf, nächster Projektschritt)
 
 ---
 
